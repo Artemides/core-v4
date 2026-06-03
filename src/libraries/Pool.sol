@@ -10,7 +10,7 @@ import {TickMath} from "./TickMath.sol";
 import {SqrtPriceMath} from "./SqrtPriceMath.sol";
 import {SwapMath} from "./SwapMath.sol";
 import {BalanceDelta, toBalanceDelta, BalanceDeltaLibrary} from "../types/BalanceDelta.sol";
-import {Slot0} from "../types/Slot0.sol";
+import {Slot0, Slot0Library} from "../types/Slot0.sol";
 import {ProtocolFeeLibrary} from "./ProtocolFeeLibrary.sol";
 import {LiquidityMath} from "./LiquidityMath.sol";
 import {LPFeeLibrary} from "./LPFeeLibrary.sol";
@@ -25,6 +25,7 @@ library Pool {
     using ProtocolFeeLibrary for *;
     using LPFeeLibrary for uint24;
     using CustomRevert for bytes4;
+    using Slot0Library for Slot0 global;
 
     struct TickInfo {
         uint128 liquidityGross;
@@ -41,5 +42,66 @@ library Pool {
         mapping(int24 tick => TickInfo) ticks;
         mapping(int16 wordPos => uint256 bitPos) tickBitmap;
         mapping(bytes32 key => Position.State) positions;
+    }
+
+    /// @notice Thrown when tickLower is not below tickUpper
+    /// @param tickLower The invalid tickLower
+    /// @param tickUpper The invalid tickUpper
+    error TicksMisordered(int24 tickLower, int24 tickUpper);
+
+    /// @notice Thrown when tickLower is less than min tick
+    /// @param tickLower The invalid tickLower
+    error TickLowerOutOfBounds(int24 tickLower);
+
+    /// @notice Thrown when tickUpper exceeds max tick
+    /// @param tickUpper The invalid tickUpper
+    error TickUpperOutOfBounds(int24 tickUpper);
+
+    /// @notice Thrown when trying to initialize an already initialized pool
+    error PoolAlreadyInitialized();
+
+    /// @notice Thrown when trying to interact with a non-initialized pool
+    error PoolNotInitialized();
+
+    /// @notice Thrown when sqrtPriceLimitX96 on a swap has already exceeded its limit
+    /// @param sqrtPriceCurrentX96 The invalid, already surpassed sqrtPriceLimitX96
+    /// @param sqrtPriceLimitX96 The surpassed price limit
+    error PriceLimitAlreadyExceeded(uint160 sqrtPriceCurrentX96, uint160 sqrtPriceLimitX96);
+
+    /// @notice Thrown when sqrtPriceLimitX96 lies outside of valid tick/price range
+    /// @param sqrtPriceLimitX96 The invalid, out-of-bounds sqrtPriceLimitX96
+    error PriceLimitOutOfBounds(uint160 sqrtPriceLimitX96);
+
+    /// @notice Thrown by donate if there is currently 0 liquidity, since the fees will not go to any liquidity providers
+    error NoLiquidityToReceiveFees();
+
+    /// @notice Thrown when trying to swap with max lp fee and specifying an output amount
+    error InvalidFeeForExactOut();
+
+    /// @dev Common checks for valid tick inputs.
+    function checkTicks(int24 tickLower, int24 tickUpper) private pure {
+        if (tickLower >= tickUpper) TicksMisordered.selector.revertWith(tickLower, tickUpper);
+        if (tickLower < TickMath.MIN_TICK) TickLowerOutOfBounds.selector.revertWith(tickLower);
+        if (tickUpper > TickMath.MAX_TICK) TickUpperOutOfBounds.selector.revertWith(tickUpper);
+    }
+
+    function initialize(State storage self, uint160 sqrtPriceX96, uint24 lpFee) internal returns (int24 tick) {
+        if (self.slot0.sqrtPriceX96() != 0) PoolAlreadyInitialized.selector.revertWith();
+
+        tick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
+
+        // the initial protocolFee is 0 so doesn't need to be set
+        self.slot0 = Slot0.wrap(bytes32(0)).setSqrtPriceX96(sqrtPriceX96).setTick(tick).setLpFee(lpFee);
+    }
+
+    function setProtocolFee(State storage self, uint24 protocolFee) internal {
+        self.checkPoolInitialized();
+        self.slot0 = self.slot0.setProtocolFee(protocolFee);
+    }
+
+    /// @notice Only dynamic fee pools may update the lp fee.
+    function setLPFee(State storage self, uint24 lpFee) internal {
+        self.checkPoolInitialized();
+        self.slot0 = self.slot0.setLpFee(lpFee);
     }
 }
