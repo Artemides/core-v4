@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
-
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {Currency} from "./Currency.sol";
-import "./../interfaces/IHooks.sol";
+import {IHooks} from "../interfaces/IHooks.sol";
+import {PoolIdLibrary} from "./PoolId.sol";
+
+using PoolIdLibrary for PoolKey global;
 
 /// @notice Returns the key for identifying a pool
 struct PoolKey {

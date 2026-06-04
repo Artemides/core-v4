@@ -1,13 +1,30 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.28;
+pragma solidity ^0.8.0;
 
 import {IERC20Minimal} from "../interfaces/external/IERC20Minimal.sol";
 import {CustomRevert} from "../libraries/CustomRevert.sol";
 
 type Currency is address;
 
+using {greaterThan as >, lessThan as <, greaterThanOrEqualTo as >=, equals as ==} for Currency global;
 using CurrencyLibrary for Currency global;
+
+function equals(Currency currency, Currency other) pure returns (bool) {
+    return Currency.unwrap(currency) == Currency.unwrap(other);
+}
+
+function greaterThan(Currency currency, Currency other) pure returns (bool) {
+    return Currency.unwrap(currency) > Currency.unwrap(other);
+}
+
+function lessThan(Currency currency, Currency other) pure returns (bool) {
+    return Currency.unwrap(currency) < Currency.unwrap(other);
+}
+
+function greaterThanOrEqualTo(Currency currency, Currency other) pure returns (bool) {
+    return Currency.unwrap(currency) >= Currency.unwrap(other);
+}
 
 /// @title CurrencyLibrary
 /// @dev This library allows for transferring and holding native tokens and ERC20 tokens

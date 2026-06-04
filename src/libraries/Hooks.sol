@@ -100,7 +100,7 @@ library Hooks {
         }
     }
 
-    function callHook(IHooks self, bytes memory data) internal returns (bytes memory res) {
+    function callHook(IHooks self, bytes memory data) internal returns (bytes memory result) {
         bool success;
         assembly {
             success := call(gas(), self, 0, add(data, 0x20), mload(data), 0, 0)
@@ -108,7 +108,7 @@ library Hooks {
         if (!success) CustomRevert.bubbleUpAndRevertWith(address(self), bytes4(data), HookCallFailed.selector);
 
         assembly {
-            res := mload(0x40)
+            result := mload(0x40)
             mstore(0x40, add(result, and(add(returndatasize(), 0x3f), not(0x1f))))
             mstore(result, returndatasize())
             returndatacopy(add(result, 0x20), 0, returndatasize())
@@ -206,7 +206,7 @@ library Hooks {
     ) internal returns (BalanceDelta callerDelta, BalanceDelta hookDelta) {
         if (msg.sender == address(self)) return (delta, BalanceDeltaLibrary.ZERO_DELTA);
 
-        callerDetal = delta;
+        callerDelta = delta;
         if (params.liquidityDelta > 0) {
             if (self.hasPermission(AFTER_ADD_LIQUIDITY_FLAG)) {
                 hookDelta = BalanceDelta.wrap(
@@ -246,8 +246,7 @@ library Hooks {
         }
 
         if (self.hasPermission(BEFORE_SWAP_FLAG)) {
-            bytes memory result =
-                self.callHook(abi.encodeCall(IHooks.beforeSwap.selector, (msg.sender, key, params, hookData)));
+            bytes memory result = self.callHook(abi.encodeCall(IHooks.beforeSwap, (msg.sender, key, params, hookData)));
 
             if (result.length != 96) InvalidHookResponse.selector.revertWith();
 
