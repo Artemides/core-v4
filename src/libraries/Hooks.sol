@@ -144,6 +144,188 @@ library Hooks {
             : (uint160(address(self)) & ALL_HOOK_MASK > 0 || fee.isDynamicFee());
     }
 
+    /// @notice performs a hook call using the given calldata on the given hook
+    /// @return int256 The delta returned by the hook
+    function callHookWithReturnDelta(IHooks self, bytes memory data, bool parseReturn) internal returns (int256) {
+        bytes memory result = callHook(self, data);
+
+        // If this hook wasn't meant to return something, default to 0 delta
+        if (!parseReturn) return 0;
+
+        // A length of 64 bytes is required to return a bytes4, and a 32 byte delta
+        if (result.length != 64) InvalidHookResponse.selector.revertWith();
+        return result.parseReturnDelta();
+    }
+
+    /// @notice modifier to prevent calling a hook if they initiated the action
+    modifier noSelfCall(IHooks self) {
+        if (msg.sender != address(self)) {
+            _;
+        }
+    }
+
+    /// @notice calls beforeInitialize hook if permissioned and validates return value
+    function beforeInitialize(IHooks self, PoolKey memory key, uint160 sqrtPriceX96) internal noSelfCall(self) {
+        if (self.hasPermission(BEFORE_INITIALIZE_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.beforeInitialize, (msg.sender, key, sqrtPriceX96)));
+        }
+    }
+
+    /// @notice calls afterInitialize hook if permissioned and validates return value
+    function afterInitialize(IHooks self, PoolKey memory key, uint160 sqrtPriceX96, int24 tick)
+        internal
+        noSelfCall(self)
+    {
+        if (self.hasPermission(AFTER_INITIALIZE_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.afterInitialize, (msg.sender, key, sqrtPriceX96, tick)));
+        }
+    }
+
+    /// @notice calls beforeModifyLiquidity hook if permissioned and validates return value
+    function beforeModifyLiquidity(
+        IHooks self,
+        PoolKey memory key,
+        ModifyLiquidityParams memory params,
+        bytes calldata hookData
+    ) internal noSelfCall(self) {
+        if (params.liquidityDelta > 0 && self.hasPermission(BEFORE_ADD_LIQUIDITY_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.beforeAddLiquidity, (msg.sender, key, params, hookData)));
+        } else if (params.liquidityDelta <= 0 && self.hasPermission(BEFORE_REMOVE_LIQUIDITY_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.beforeRemoveLiquidity, (msg.sender, key, params, hookData)));
+        }
+    }
+
+    /// @notice calls afterModifyLiquidity hook if permissioned and validates return value
+    function afterModifyLiquidity(
+        IHooks self,
+        PoolKey memory key,
+        ModifyLiquidityParams memory params,
+        BalanceDelta delta,
+        BalanceDelta feesAccrued,
+        bytes calldata hookData
+    ) internal returns (BalanceDelta callerDelta, BalanceDelta hookDelta) {
+        if (msg.sender == address(self)) return (delta, BalanceDeltaLibrary.ZERO_DELTA);
+
+        callerDetal = delta;
+        if (params.liquidityDelta > 0) {
+            if (self.hasPermission(AFTER_ADD_LIQUIDITY_FLAG)) {
+                hookDelta = BalanceDelta.wrap(
+                    self.callHookWithReturnDelta(
+                        abi.encodeCall(
+                            IHooks.afterAddLiquidity, (msg.sender, key, params, delta, feesAccrued, hookData)
+                        ),
+                        self.hasPermission(AFTER_ADD_LIQUIDITY_RETURNS_DELTA_FLAG)
+                    )
+                );
+
+                callerDelta = callerDelta - hookDelta;
+            }
+        } else {
+            if (self.hasPermission(AFTER_REMOVE_LIQUIDITY_FLAG)) {
+                hookDelta = BalanceDelta.wrap(
+                    self.callHookWithReturnDelta(
+                        abi.encodeCall(
+                            IHooks.afterRemoveLiquidity, (msg.sender, key, params, delta, feesAccrued, hookData)
+                        ),
+                        self.hasPermission(AFTER_REMOVE_LIQUIDITY_RETURNS_DELTA_FLAG)
+                    )
+                );
+                callerDelta = callerDelta - hookDelta;
+            }
+        }
+    }
+
+    /// @notice calls beforeSwap hook if permissioned and validates return value
+    function beforeSwap(IHooks self, PoolKey memory key, SwapParams memory params, bytes calldata hookData)
+        internal
+        returns (int256 amountToSwap, BeforeSwapDelta hookReturn, uint24 lpFeeOverride)
+    {
+        amountToSwap = params.amountSpecified;
+        if (msg.sender == address(self)) {
+            return (amountToSwap, BeforeSwapDeltaLibrary.ZERO_DELTA, lpFeeOverride);
+        }
+
+        if (self.hasPermission(BEFORE_SWAP_FLAG)) {
+            bytes memory result =
+                self.callHook(abi.encodeCall(IHooks.beforeSwap.selector, (msg.sender, key, params, hookData)));
+
+            if (result.length != 96) InvalidHookResponse.selector.revertWith();
+
+            if (key.fee.isDynamicFee()) lpFeeOverride = result.parseFee();
+
+            if (self.hasPermission(BEFORE_SWAP_RETURNS_DELTA_FLAG)) {
+                hookReturn = BeforeSwapDelta.wrap(result.parseReturnDelta());
+
+                int128 hookDeltaSpecified = hookReturn.getSpecifiedDelta();
+
+                if (hookDeltaSpecified != 0) {
+                    bool exactInput = amountToSwap < 0;
+                    amountToSwap += hookDeltaSpecified;
+
+                    if (exactInput ? amountToSwap > 0 : amountToSwap < 0) {
+                        HookDeltaExceedsSwapAmount.selector.revertWith();
+                    }
+                }
+            }
+        }
+    }
+
+    /// @notice calls afterSwap hook if permissioned and validates return value
+    function afterSwap(
+        IHooks self,
+        PoolKey memory key,
+        SwapParams memory params,
+        BalanceDelta swapDelta,
+        bytes calldata hookData,
+        BeforeSwapDelta beforeSwapHookReturn
+    ) internal returns (BalanceDelta, BalanceDelta) {
+        if (msg.sender == address(self)) {
+            return (swapDelta, BalanceDeltaLibrary.ZERO_DELTA);
+        }
+
+        int128 hookDeltaSpecified = beforeSwapHookReturn.getSpecifiedDelta();
+        int128 hookDeltaUnspecified = beforeSwapHookReturn.getUnspecifiedDelta();
+
+        if (self.hasPermission(AFTER_SWAP_FLAG)) {
+            hookDeltaUnspecified += self.callHookWithReturnDelta(
+                    abi.encodeCall(IHooks.afterSwap, (msg.sender, key, params, swapDelta, hookData)),
+                    self.hasPermission(AFTER_SWAP_RETURNS_DELTA_FLAG)
+                ).toInt128();
+        }
+
+        BalanceDelta hookDelta;
+        if (hookDeltaUnspecified != 0 || hookDeltaSpecified != 0) {
+            hookDelta = (params.amountSpecified < 0 == params.zeroForOne)
+                ? toBalanceDelta(hookDeltaSpecified, hookDeltaUnspecified)
+                : toBalanceDelta(hookDeltaUnspecified, hookDeltaSpecified);
+
+            // the caller has to pay for (or receive) the hook's delta
+            swapDelta = swapDelta - hookDelta;
+        }
+
+        return (swapDelta, hookDelta);
+    }
+
+    /// @notice calls beforeDonate hook if permissioned and validates return value
+    function beforeDonate(IHooks self, PoolKey memory key, uint256 amount0, uint256 amount1, bytes calldata hookData)
+        internal
+        noSelfCall(self)
+    {
+        if (self.hasPermission(BEFORE_DONATE_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.beforeDonate, (msg.sender, key, amount0, amount1, hookData)));
+        }
+    }
+
+    /// @notice calls afterDonate hook if permissioned and validates return value
+    function afterDonate(IHooks self, PoolKey memory key, uint256 amount0, uint256 amount1, bytes calldata hookData)
+        internal
+        noSelfCall(self)
+    {
+        if (self.hasPermission(AFTER_DONATE_FLAG)) {
+            self.callHook(abi.encodeCall(IHooks.afterDonate, (msg.sender, key, amount0, amount1, hookData)));
+        }
+    }
+
     function hasPermission(IHooks self, uint160 flag) internal pure returns (bool) {
         return uint160(address(self)) & flag != 0;
     }
