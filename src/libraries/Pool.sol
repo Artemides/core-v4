@@ -533,4 +533,9 @@ library Pool {
             }
         }
     }
+
+      /// @notice Reverts if the given pool has not been initialized
+    function checkPoolInitialized(State storage self) internal view {
+        if (self.slot0.sqrtPriceX96() == 0) PoolNotInitialized.selector.revertWith();
+    }
 }
