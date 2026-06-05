@@ -124,6 +124,114 @@ abstract contract PoolManager is IPoolManager, ProtocolFees, NoDelegateCall, ERC
         _accountPoolBalanceDelta(key, callerDelta, msg.sender);
     }
 
+    function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData)
+        external
+        onlyWhenUnlocked
+        noDelegateCall
+        returns (BalanceDelta swapDelta)
+    {
+        if (params.amountSpecified == 0) SwapAmountCannotBeZero.selector.revertWith();
+
+        PoolId id = key.toId();
+        Pool.State storage pool = _getPool(id);
+        pool.checkPoolInitialized();
+
+        BeforeSwapDelta beforeSwapDelta;
+        {
+
+            int256 amountToSwap;
+            uint24 lpFeeOverride;
+
+            (amountToSwap, beforeSwapDelta, lpFeeOverride) = key.hooks.beforeSwap(key, params, hookData);
+
+            swapDelta = _swap(
+                pool,
+                id,
+                Pool.SwapParams({
+                    tickSpacing: key.tickSpacing,
+                    zeroForOne: params.zeroForOne,
+                    amountSpecified: amountToSwap,
+                    sqrtPriceLimitX96: params.sqrtPriceLimitX96,
+                    lpFeeOverride: lpFeeOverride
+                }),
+                params.zeroForOne ? key.currency0 : key.currency1
+            );
+        }
+
+        BalanceDelta hookDelta;
+        (swapDelta, hookDelta) = key.hooks.afterSwap(key, params, swapDelta, hookData, beforeSwapDelta);
+
+        if (hookDelta != BalanceDeltaLibrary.ZERO_DELTA) _accountPoolBalanceDelta(key, hookDelta, address(key.hooks));
+
+        _accountPoolBalanceDelta(key, swapDelta, msg.sender);
+    }
+
+    function sync(Currency currency) external {
+        if (currency.isAddressZero()) {
+            CurrencyReserves.resetCurrency();
+        } else {
+            uint256 balance = currency.balanceOfSelf();
+            CurrencyReserves.syncCurrencyAndReserves(currency, balance);
+        }
+    }
+
+    function take(Currency currency, address to, uint256 amount) external onlyWhenUnlocked {
+        unchecked {
+            _accountDelta(currency, -(amount.toInt128()), to);
+            currency.transfer(to, amount);
+        }
+    }
+
+    function settle() external payable onlyWhenUnlocked returns (uint256) {
+        return _settle(msg.sender);
+    }
+
+    function settleFor(address recipient) external payable onlyWhenUnlocked returns (uint256) {
+        return _settle(recipient);
+    }
+
+    function _settle(address recipient) internal returns (uint256 paid) {
+        Currency currency = CurrencyReserves.getSyncedCurrency();
+        if (currency.isAddressZero()) {
+            paid = msg.value;
+        } else {
+            if (msg.value > 0) NonzeroNativeValue.selector.revertWith();
+
+            uint256 reservesBefore = CurrencyReserves.getSyncedReserves();
+            uint256 reservesNow = currency.balanceOfSelf();
+
+            paid = reservesNow - reservesBefore;
+
+            CurrencyReserves.resetCurrency();
+        }
+
+        _accountDelta(currency, paid.toInt128(), recipient);
+    }
+
+    function _swap(Pool.State storage pool, PoolId id, Pool.SwapParams memory params, Currency inputCurrency)
+        internal
+        returns (BalanceDelta)
+    {
+        // (BalanceDelta swapDelta, uint256 amountToProtocol, uint24 swapFee, SwapResult memory result)
+        (BalanceDelta delta, uint256 amountToProtocol, uint24 swapFee, Pool.SwapResult memory result) =
+            pool.swap(params);
+
+        if (amountToProtocol > 0) _updateProtocolFees(inputCurrency, amountToProtocol);
+
+        emit Swap(
+            id,
+            msg.sender,
+            delta.amount0(),
+            delta.amount1(),
+            result.sqrtPriceX96,
+            result.liquidity,
+            result.tick,
+            swapFee
+        );
+
+        return delta;
+    }
+
     function _accountDelta(Currency currency, int128 delta, address target) internal {
         if (delta == 0) return;
 
