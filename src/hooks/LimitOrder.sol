@@ -15,6 +15,7 @@ import {StateLibrary} from "./../libraries/StateLibrary.sol";
 import {SafeCast} from "./../libraries/SafeCast.sol";
 import {IUnlockCallback} from "./../interfaces/callback/IUnlockCallback.sol";
 import {IERC20Minimal} from "./../interfaces/external/IERC20Minimal.sol";
+import {FullMath} from "./../libraries/FullMath.sol";
 
 abstract contract LimitOrderHook is TStore, IUnlockCallback {
     using SafeCast for int128;
@@ -52,6 +53,16 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         int24 tickLower,
         bool zeroForOne,
         uint128 liquidity
+    );
+
+    event Take(
+        bytes32 indexed poolId,
+        uint256 indexed slot,
+        address indexed user,
+        int24 tickLower,
+        bool zeroForOne,
+        uint256 amount0,
+        uint256 amount1
     );
 
     error NotPoolManager();
@@ -150,6 +161,35 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         emit Cancel(PoolId.unwrap(poolId), slot, msg.sender, tickLower, zeroForOne, liquidity);
     }
 
+    function take(PoolKey calldata key, int24 tickLower, bool zeroForOne, uint256 slot) external {
+        PoolId id = key.toId();
+        bytes32 bucketId = getBucketId(id, tickLower, zeroForOne);
+
+        (bool fulfilled, uint256 amount0, uint256 amount1, uint128 liquidity) = getBucket(bucketId, slot);
+        if (fulfilled) revert BucketFulfilled(bucketId);
+
+        uint128 liquidityShare = getOrderSize(bucketId, slot, msg.sender);
+        if (liquidityShare == 0) revert InsufficientLiquidity();
+
+        uint256 amount0Owed;
+
+        if (amount0 > 0) {
+            amount0Owed = FullMath.mulDiv(amount0, liquidityShare, liquidity);
+        }
+
+        uint256 amount1Owed;
+        if (amount1 > 0) {
+            amount1Owed = FullMath.mulDiv(amount1, liquidityShare, liquidity);
+        }
+
+        delete buckets[bucketId][slot].sizes[msg.sender];
+
+        if (amount0Owed > 0) key.currency0.transfer(msg.sender, amount0Owed);
+        if (amount1Owed > 0) key.currency0.transfer(msg.sender, amount1Owed);
+
+        emit Take(PoolId.unwrap(id), slot, msg.sender, tickLower, zeroForOne, amount0, amount1);
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         (address owner, PoolKey memory poolKey, ModifyLiquidityParams memory params) =
             abi.decode(data, (address, PoolKey, ModifyLiquidityParams));
@@ -178,6 +218,19 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
                 poolManager.settle();
             }
         }
+    }
+
+    function getBucket(bytes32 id, uint256 slot)
+        public
+        view
+        returns (bool filled, uint256 amount0, uint256 amount1, uint128 liquidity)
+    {
+        Bucket storage bucket = buckets[id][slot];
+        return (bucket.fulfilled, bucket.amount0, bucket.amount1, bucket.liquidity);
+    }
+
+    function getOrderSize(bytes32 id, uint256 slot, address user) public view returns (uint128) {
+        return buckets[id][slot].sizes[user];
     }
 
     function getBucketId(PoolId poolId, int24 tick, bool zeroForOne) public pure returns (bytes32 bucketId) {
