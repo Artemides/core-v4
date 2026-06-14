@@ -58,4 +58,9 @@ library SafeCast {
         if (x >= 1 << 127) SafeCastOverflow.selector.revertWith();
         return int128(int256(x));
     }
+
+    function toUint256(int128 x) internal pure returns (uint256) {
+        require(x >= 0, "x < 0");
+        return uint256(uint128(x));
+    }
 }
