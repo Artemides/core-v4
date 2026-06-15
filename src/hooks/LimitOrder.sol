@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 import {PoolKey} from "./../types/PoolKey.sol";
 import {TStore} from "./TStore.sol";
 import {SwapParams, ModifyLiquidityParams} from "./../types/PoolOperation.sol";
-import {BalanceDelta} from "./../types/BalanceDelta.sol";
+import {BalanceDelta, toBalanceDelta} from "./../types/BalanceDelta.sol";
 import {IPoolManager} from "./../interfaces/IPoolManager.sol";
 import {Hooks} from "./../libraries/Hooks.sol";
 import {PoolId} from "./../types/PoolId.sol";
@@ -33,7 +33,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
 
     IPoolManager poolManager;
 
-    mapping(bytes32 bucketId => uint256 index) public slots;
+    mapping(bytes32 bucketId => uint256 slot) public slots;
     mapping(bytes32 bucketId => mapping(uint256 index => Bucket)) public buckets;
     mapping(PoolId => int24 tick) public ticks;
 
@@ -65,12 +65,16 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         uint256 amount1
     );
 
+    event Fill(
+        bytes32 indexed poolId, uint256 indexed slot, int24 tickLower, bool zeroForOne, uint256 amount0, uint256 amount1
+    );
+
     error NotPoolManager();
     error InvalidTick();
     error BucketFulfilled(bytes32 bucketId);
     error InsufficientLiquidity();
 
-    modifier OnlyPoolManafer() {
+    modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
         _;
     }
@@ -81,13 +85,50 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     }
 
     /// @notice IHooks
-    function afterInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96, int24 tick)
-        external
-        returns (bytes4)
-    {
+    function afterInitialize(address, PoolKey calldata key, uint160, int24 tick) external returns (bytes4) {
         ticks[key.toId()] = tick;
 
         return this.afterInitialize.selector;
+    }
+
+    function afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
+        external
+        onlyPoolManager
+        setAction(REMOVE_LIQUIDITY)
+        returns (bytes4, int128)
+    {
+        int24 lastTick = ticks[key.toId()];
+        int24 currentTick = _getTick(key.toId());
+        (int24 fromTick, int24 toTick) = _getBucketTickRanges(lastTick, currentTick, key.tickSpacing);
+
+        bool zeroForOne = currentTick < lastTick;
+
+        for (int24 tickLower = fromTick; tickLower < toTick; tickLower += key.tickSpacing) {
+            bytes32 bucketId = getBucketId(key.toId(), tickLower, zeroForOne);
+            uint256 slot = slots[bucketId];
+
+            Bucket storage bucket = buckets[bucketId][slot];
+            ModifyLiquidityParams memory params = ModifyLiquidityParams({
+                tickLower: fromTick, tickUpper: toTick, liquidityDelta: int128(bucket.liquidity), salt: ""
+            });
+
+            bytes memory data = poolManager.unlock(abi.encode(address(this), key, params));
+            (BalanceDelta delta) = abi.decode(data, (BalanceDelta));
+
+            uint256 amount0 = delta.amount0().toUint256();
+            uint256 amount1 = delta.amount1().toUint256();
+
+            bucket.amount0 += amount0;
+            bucket.amount1 += amount1;
+
+            slots[bucketId]++;
+
+            emit Fill(PoolId.unwrap(key.toId()), slot, tickLower, zeroForOne, amount0, amount1);
+        }
+
+        ticks[key.toId()] = toTick;
+
+        return (this.afterSwap.selector, 0);
     }
 
     function place(PoolKey memory poolKey, int24 tickLower, bool zeroForOne, uint128 liquidity)
@@ -197,11 +238,12 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         (BalanceDelta delta, BalanceDelta feesDelta) = poolManager.modifyLiquidity(poolKey, params, "");
 
         (int128 amount0, int128 amount1) = (delta.amount0(), delta.amount1());
+        (int128 fees0, int128 fees1) = (feesDelta.amount0(), feesDelta.amount1());
 
-        _takeOrSetlle(poolKey.currency0, amount0, owner);
-        _takeOrSetlle(poolKey.currency1, amount1, owner);
+        _takeOrSetlle(poolKey.currency0, amount0 + fees0, owner);
+        _takeOrSetlle(poolKey.currency1, amount1 + fees1, owner);
 
-        return abi.encode(delta, feesDelta);
+        return abi.encode(delta + feesDelta);
     }
 
     function _takeOrSetlle(Currency currency, int128 amount, address owner) internal {
@@ -237,20 +279,34 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         return keccak256(abi.encode(PoolId.unwrap(poolId), tick, zeroForOne));
     }
 
-    /// @notice IHooks
-    function afterSwap(
-        address sender,
-        PoolKey calldata key,
-        SwapParams calldata params,
-        BalanceDelta delta,
-        bytes calldata hookData
-    ) external returns (bytes4, int128) {}
-
     function _getTick(PoolId poolId) private view returns (int24 tick) {
         (, tick,,) = StateLibrary.getSlot0(address(poolManager), poolId);
     }
 
-    receive() external payable {}
+    function _getTickLower(int24 tick, int24 tickSpacing) internal pure returns (int24) {
+        int24 compressed = tick / tickSpacing;
+
+        if (tick < 0 && tick % tickSpacing != 0) compressed--;
+
+        return compressed * tickSpacing;
+    }
+
+    function _getBucketTickRanges(int24 tick0, int24 tick1, int24 tickSpacing)
+        internal
+        pure
+        returns (int24 lower, int24 upper)
+    {
+        int24 l0 = _getTickLower(tick0, tickSpacing);
+        int24 l1 = _getTickLower(tick1, tickSpacing);
+
+        if (tick0 <= tick1) {
+            lower = l0;
+            upper = l1 - tickSpacing;
+        } else {
+            lower = l1 + tickSpacing;
+            upper = l0;
+        }
+    }
 
     function getHookPermissions() public pure returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
@@ -270,5 +326,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
             afterRemoveLiquidityReturnDelta: false
         });
     }
+
+    receive() external payable {}
 }
 
