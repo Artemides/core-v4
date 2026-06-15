@@ -73,6 +73,8 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     error InvalidTick();
     error BucketFulfilled(bytes32 bucketId);
     error InsufficientLiquidity();
+    error InsufficientInputAmount();
+    error InvalidCurrency(Currency expected, Currency received);
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert NotPoolManager();
@@ -94,7 +96,6 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     function afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
         external
         onlyPoolManager
-        setAction(REMOVE_LIQUIDITY)
         returns (bytes4, int128)
     {
         int24 lastTick = ticks[key.toId()];
@@ -134,7 +135,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     function place(PoolKey memory poolKey, int24 tickLower, bool zeroForOne, uint128 liquidity)
         external
         payable
-        setAction(ADD_LIQUIDITY)
+        msgStore
     {
         if (tickLower % poolKey.tickSpacing != 0) revert InvalidTick();
         if (tickLower == _getTick(poolKey.toId())) revert InvalidTick();
@@ -143,14 +144,13 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
             tickLower: tickLower,
             tickUpper: tickLower + poolKey.tickSpacing,
             liquidityDelta: int128(liquidity),
-            salt: ""
+            salt: bytes32(0)
         });
 
-        PoolId id = poolKey.toId();
-
         bytes memory data = abi.encode(msg.sender, poolKey, params);
-        poolManager.unlock(data);
+        data = poolManager.unlock(data);
 
+        PoolId id = poolKey.toId();
         bytes32 bucketId = getBucketId(id, tickLower, zeroForOne);
         uint256 currentSlot = slots[bucketId];
 
@@ -167,7 +167,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         emit Place(PoolId.unwrap(id), currentSlot, msg.sender, tickLower, zeroForOne, liquidity);
     }
 
-    function cancel(PoolKey calldata key, int24 tickLower, bool zeroForOne) external setAction(REMOVE_LIQUIDITY) {
+    function cancel(PoolKey calldata key, int24 tickLower, bool zeroForOne) external msgStore {
         PoolId poolId = key.toId();
         bytes32 bucketId = getBucketId(poolId, tickLower, zeroForOne);
 
@@ -213,7 +213,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         emit Cancel(PoolId.unwrap(poolId), slot, msg.sender, tickLower, zeroForOne, liquidity);
     }
 
-    function take(PoolKey calldata key, int24 tickLower, bool zeroForOne, uint256 slot) external {
+    function take(PoolKey calldata key, int24 tickLower, bool zeroForOne, uint256 slot) external msgStore {
         PoolId id = key.toId();
         bytes32 bucketId = getBucketId(id, tickLower, zeroForOne);
 
@@ -235,9 +235,10 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        (address owner, PoolKey memory poolKey, ModifyLiquidityParams memory params) =
-            abi.decode(data, (address, PoolKey, ModifyLiquidityParams));
+        (PoolKey memory poolKey, ModifyLiquidityParams memory params) =
+            abi.decode(data, (PoolKey, ModifyLiquidityParams));
 
+        address owner = _msgSender();
         (BalanceDelta delta, BalanceDelta feesDelta) = poolManager.modifyLiquidity(poolKey, params, "");
 
         (int128 amount0, int128 amount1) = (delta.amount0(), delta.amount1());
@@ -250,18 +251,24 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     }
 
     function _takeOrSetlle(Currency currency, int128 amount, address owner) internal {
+        if (amount == 0) return;
         if (amount > 0) {
             poolManager.take(currency, address(this), amount.toUint256());
-        } else {
-            poolManager.sync(currency);
-            uint256 amountIn = (-amount).toUint256();
+            return;
+        }
 
-            if (currency.isAddressZero()) {
-                poolManager.settle{value: amountIn}();
-            } else {
-                IERC20Minimal(Currency.unwrap(currency)).transferFrom(owner, address(poolManager), amountIn);
-                poolManager.settle();
-            }
+        poolManager.sync(currency);
+        uint256 amountIn = (-amount).toUint256();
+
+        if (currency.isAddressZero()) {
+            if (_msgValue() < amountIn) revert InsufficientInputAmount();
+
+            poolManager.settle{value: amountIn}();
+        } else {
+            if (_msgValue() > 0) revert InvalidCurrency(currency, address(0));
+
+            IERC20Minimal(Currency.unwrap(currency)).transferFrom(owner, address(poolManager), amountIn);
+            poolManager.settle();
         }
     }
 
