@@ -178,6 +178,9 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         uint128 liquidity = bucket.sizes[msg.sender];
         if (liquidity == 0) revert InsufficientLiquidity();
 
+        bucket.liquidity -= liquidity;
+        bucket.sizes[msg.sender] = 0;
+
         ModifyLiquidityParams memory params = ModifyLiquidityParams({
             tickLower: tickLower, tickUpper: tickLower + key.tickSpacing, liquidityDelta: int128(liquidity), salt: ""
         });
@@ -185,18 +188,23 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         bytes memory data = abi.encode(msg.sender, key, params);
         data = poolManager.unlock(data);
 
-        bucket.liquidity -= liquidity;
-        bucket.sizes[msg.sender] -= liquidity;
+        (uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) =
+            abi.decode(data, (uint256, uint256, uint256, uint256));
 
-        (, BalanceDelta deltaFees) = abi.decode(data, (BalanceDelta, BalanceDelta));
-        int128 fees0 = deltaFees.amount0();
-        int128 fees1 = deltaFees.amount1();
+        if (bucket.liquidity > 0) {
+            bucket.amount0 += fees0;
+            bucket.amount1 += fees1;
 
-        if (fees0 > 0) bucket.amount0 += fees0.toUint256();
-        if (fees1 > 0) bucket.amount1 += fees1.toUint256();
+            if (amount0 > fees0) key.currency0.transfer(msg.sender, amount0 - fees0);
+            if (amount1 > fees1) key.currency1.transfer(msg.sender, amount1 - fees1);
+        } else {
+            amount0 += bucket.amount0;
+            amount1 += bucket.amount1;
+            bucket.amount0 = 0;
+            bucket.amount1 = 0;
 
-        if (bucket.liquidity == 0) {
-            //return fees to the last caller?
+            key.currency0.transfer(msg.sender, amount0 - fees0);
+            key.currency1.transfer(msg.sender, amount1 - fees1);
         }
 
         emit Cancel(PoolId.unwrap(poolId), slot, msg.sender, tickLower, zeroForOne, liquidity);
@@ -240,15 +248,15 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         (int128 amount0, int128 amount1) = (delta.amount0(), delta.amount1());
         (int128 fees0, int128 fees1) = (feesDelta.amount0(), feesDelta.amount1());
 
-        _takeOrSetlle(poolKey.currency0, amount0 + fees0, owner);
-        _takeOrSetlle(poolKey.currency1, amount1 + fees1, owner);
+        _takeOrSetlle(poolKey.currency0, amount0, owner);
+        _takeOrSetlle(poolKey.currency1, amount1, owner);
 
-        return abi.encode(delta + feesDelta);
+        return abi.encode(amount0, amount1, fees0, fees1);
     }
 
     function _takeOrSetlle(Currency currency, int128 amount, address owner) internal {
         if (amount > 0) {
-            poolManager.take(currency, owner, amount.toUint256());
+            poolManager.take(currency, address(this), amount.toUint256());
         } else {
             poolManager.sync(currency);
             uint256 amountIn = (-amount).toUint256();
