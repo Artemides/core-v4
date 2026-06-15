@@ -121,7 +121,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
 
             (uint256 amount0, uint256 amount1) = abi.decode(data, (uint256, uint256));
 
-            bucket.filled = true;
+            bucket.fulfilled = true;
             bucket.amount0 += amount0;
             bucket.amount1 += amount1;
 
@@ -136,7 +136,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     function place(PoolKey memory poolKey, int24 tickLower, bool zeroForOne, uint128 liquidity)
         external
         payable
-        msgStore
+        msgStore(msg.sender, msg.value)
     {
         if (tickLower % poolKey.tickSpacing != 0) revert InvalidTick();
         if (tickLower == _getTick(poolKey.toId())) revert InvalidTick();
@@ -168,7 +168,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         emit Place(PoolId.unwrap(id), currentSlot, msg.sender, tickLower, zeroForOne, liquidity);
     }
 
-    function cancel(PoolKey calldata key, int24 tickLower, bool zeroForOne) external msgStore {
+    function cancel(PoolKey calldata key, int24 tickLower, bool zeroForOne) external msgStore(msg.sender, 0) {
         PoolId poolId = key.toId();
         bytes32 bucketId = getBucketId(poolId, tickLower, zeroForOne);
 
@@ -214,7 +214,10 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         emit Cancel(PoolId.unwrap(poolId), slot, msg.sender, tickLower, zeroForOne, liquidity);
     }
 
-    function take(PoolKey calldata key, int24 tickLower, bool zeroForOne, uint256 slot) external msgStore {
+    function take(PoolKey calldata key, int24 tickLower, bool zeroForOne, uint256 slot)
+        external
+        msgStore(msg.sender, 0)
+    {
         PoolId id = key.toId();
         bytes32 bucketId = getBucketId(id, tickLower, zeroForOne);
 
@@ -266,8 +269,6 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
 
             poolManager.settle{value: amountIn}();
         } else {
-            if (_msgValue() > 0) revert InvalidCurrency(currency, address(0));
-
             IERC20Minimal(Currency.unwrap(currency)).transferFrom(owner, address(poolManager), amountIn);
             poolManager.settle();
         }

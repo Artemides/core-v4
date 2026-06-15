@@ -2,14 +2,14 @@
 
 pragma solidity ^0.8.24;
 
-import {IPoolManager} from "./../../src/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "./../../src/interfaces/callback/IUnlockCallback.sol";
+import {IPoolManager} from "./../../interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "./../../interfaces/callback/IUnlockCallback.sol";
 import {ImmutableState} from "./ImmutableState.sol";
 
-contract SafeCallback is IUnlockCallback, ImmutableState {
+abstract contract SafeCallback is ImmutableState, IUnlockCallback {
     constructor(IPoolManager _poolManager) ImmutableState(_poolManager) {}
 
-    function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
         return _unlockCallback(data);
     }
 

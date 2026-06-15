@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./../../src/interfaces/IPoolManager.sol";
+import "./../../interfaces/IPoolManager.sol";
 import "./../interfaces/IImmutableState.sol";
 
 /// @title IImmutableState
 /// @notice Interface for the ImmutableState contract
-contract ImmutableState is ImmutableState {
+contract ImmutableState is IImmutableState {
     /// @notice The Uniswap v4 PoolManager contract
     IPoolManager public immutable poolManager;
 

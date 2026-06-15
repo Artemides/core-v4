@@ -1,0 +1,227 @@
+{
+    "contracts": {
+        "/Users/edm/Desktop/personal/ether/uniswapv4/core-v4/src/interfaces/callback/IUnlockCallback.sol": {
+            "IUnlockCallback": {
+                "abi": [
+                    {
+                        "inputs": [
+                            {
+                                "internalType": "bytes",
+                                "name": "data",
+                                "type": "bytes"
+                            }
+                        ],
+                        "name": "unlockCallback",
+                        "outputs": [
+                            {
+                                "internalType": "bytes",
+                                "name": "",
+                                "type": "bytes"
+                            }
+                        ],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    }
+                ],
+                "devdoc": {
+                    "kind": "dev",
+                    "methods": {
+                        "unlockCallback(bytes)": {
+                            "params": {
+                                "data": "The data that was passed to the call to unlock"
+                            },
+                            "returns": {
+                                "_0": "Any data that you want to be returned from the unlock call"
+                            }
+                        }
+                    },
+                    "version": 1
+                },
+                "evm": {
+                    "bytecode": {
+                        "functionDebugData": {},
+                        "generatedSources": [],
+                        "linkReferences": {},
+                        "object": "",
+                        "opcodes": "",
+                        "sourceMap": ""
+                    },
+                    "deployedBytecode": {
+                        "functionDebugData": {},
+                        "generatedSources": [],
+                        "immutableReferences": {},
+                        "linkReferences": {},
+                        "object": "",
+                        "opcodes": "",
+                        "sourceMap": ""
+                    },
+                    "gasEstimates": null,
+                    "methodIdentifiers": {
+                        "unlockCallback(bytes)": "91dd7346"
+                    }
+                },
+                "metadata": "{\"compiler\":{\"version\":\"0.8.27+commit.40a35a09\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"name\":\"unlockCallback\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{\"unlockCallback(bytes)\":{\"params\":{\"data\":\"The data that was passed to the call to unlock\"},\"returns\":{\"_0\":\"Any data that you want to be returned from the unlock call\"}}},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{\"unlockCallback(bytes)\":{\"notice\":\"Called by the pool manager on `msg.sender` when the manager is unlocked\"}},\"notice\":\"Interface for the callback executed when an address unlocks the pool manager\",\"version\":1}},\"settings\":{\"compilationTarget\":{\"/Users/edm/Desktop/personal/ether/uniswapv4/core-v4/src/interfaces/callback/IUnlockCallback.sol\":\"IUnlockCallback\"},\"evmVersion\":\"cancun\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[],\"viaIR\":true},\"sources\":{\"/Users/edm/Desktop/personal/ether/uniswapv4/core-v4/src/interfaces/callback/IUnlockCallback.sol\":{\"keccak256\":\"0x58c82f2bd9d7c097ed09bd0991fedc403b0ec270eb3d0158bfb095c06a03d719\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://91168ca26a10980df2cdc3fbfe8ddf372c002b7ef19e3c59a0c9870d64198f1b\",\"dweb:/ipfs/QmUSpaM825vd1SwvF38esgbdLgYiPwefKaFERTWvUi6uSK\"]}},\"version\":1}",
+                "storageLayout": {
+                    "storage": [],
+                    "types": null
+                },
+                "userdoc": {
+                    "kind": "user",
+                    "methods": {
+                        "unlockCallback(bytes)": {
+                            "notice": "Called by the pool manager on `msg.sender` when the manager is unlocked"
+                        }
+                    },
+                    "notice": "Interface for the callback executed when an address unlocks the pool manager",
+                    "version": 1
+                }
+            }
+        }
+    },
+    "sources": {
+        "/Users/edm/Desktop/personal/ether/uniswapv4/core-v4/src/interfaces/callback/IUnlockCallback.sol": {
+            "ast": {
+                "absolutePath": "/Users/edm/Desktop/personal/ether/uniswapv4/core-v4/src/interfaces/callback/IUnlockCallback.sol",
+                "exportedSymbols": {
+                    "IUnlockCallback": [
+                        11
+                    ]
+                },
+                "id": 12,
+                "license": "MIT",
+                "nodeType": "SourceUnit",
+                "nodes": [
+                    {
+                        "id": 1,
+                        "literals": [
+                            "solidity",
+                            "^",
+                            "0.8",
+                            ".0"
+                        ],
+                        "nodeType": "PragmaDirective",
+                        "src": "32:23:0"
+                    },
+                    {
+                        "abstract": false,
+                        "baseContracts": [],
+                        "canonicalName": "IUnlockCallback",
+                        "contractDependencies": [],
+                        "contractKind": "interface",
+                        "documentation": {
+                            "id": 2,
+                            "nodeType": "StructuredDocumentation",
+                            "src": "57:89:0",
+                            "text": "@notice Interface for the callback executed when an address unlocks the pool manager"
+                        },
+                        "fullyImplemented": false,
+                        "id": 11,
+                        "linearizedBaseContracts": [
+                            11
+                        ],
+                        "name": "IUnlockCallback",
+                        "nameLocation": "156:15:0",
+                        "nodeType": "ContractDefinition",
+                        "nodes": [
+                            {
+                                "documentation": {
+                                    "id": 3,
+                                    "nodeType": "StructuredDocumentation",
+                                    "src": "178:225:0",
+                                    "text": "@notice Called by the pool manager on `msg.sender` when the manager is unlocked\n @param data The data that was passed to the call to unlock\n @return Any data that you want to be returned from the unlock call"
+                                },
+                                "functionSelector": "91dd7346",
+                                "id": 10,
+                                "implemented": false,
+                                "kind": "function",
+                                "modifiers": [],
+                                "name": "unlockCallback",
+                                "nameLocation": "417:14:0",
+                                "nodeType": "FunctionDefinition",
+                                "parameters": {
+                                    "id": 6,
+                                    "nodeType": "ParameterList",
+                                    "parameters": [
+                                        {
+                                            "constant": false,
+                                            "id": 5,
+                                            "mutability": "mutable",
+                                            "name": "data",
+                                            "nameLocation": "447:4:0",
+                                            "nodeType": "VariableDeclaration",
+                                            "scope": 10,
+                                            "src": "432:19:0",
+                                            "stateVariable": false,
+                                            "storageLocation": "calldata",
+                                            "typeDescriptions": {
+                                                "typeIdentifier": "t_bytes_calldata_ptr",
+                                                "typeString": "bytes"
+                                            },
+                                            "typeName": {
+                                                "id": 4,
+                                                "name": "bytes",
+                                                "nodeType": "ElementaryTypeName",
+                                                "src": "432:5:0",
+                                                "typeDescriptions": {
+                                                    "typeIdentifier": "t_bytes_storage_ptr",
+                                                    "typeString": "bytes"
+                                                }
+                                            },
+                                            "visibility": "internal"
+                                        }
+                                    ],
+                                    "src": "431:21:0"
+                                },
+                                "returnParameters": {
+                                    "id": 9,
+                                    "nodeType": "ParameterList",
+                                    "parameters": [
+                                        {
+                                            "constant": false,
+                                            "id": 8,
+                                            "mutability": "mutable",
+                                            "name": "",
+                                            "nameLocation": "-1:-1:-1",
+                                            "nodeType": "VariableDeclaration",
+                                            "scope": 10,
+                                            "src": "471:12:0",
+                                            "stateVariable": false,
+                                            "storageLocation": "memory",
+                                            "typeDescriptions": {
+                                                "typeIdentifier": "t_bytes_memory_ptr",
+                                                "typeString": "bytes"
+                                            },
+                                            "typeName": {
+                                                "id": 7,
+                                                "name": "bytes",
+                                                "nodeType": "ElementaryTypeName",
+                                                "src": "471:5:0",
+                                                "typeDescriptions": {
+                                                    "typeIdentifier": "t_bytes_storage_ptr",
+                                                    "typeString": "bytes"
+                                                }
+                                            },
+                                            "visibility": "internal"
+                                        }
+                                    ],
+                                    "src": "470:14:0"
+                                },
+                                "scope": 11,
+                                "src": "408:77:0",
+                                "stateMutability": "nonpayable",
+                                "virtual": false,
+                                "visibility": "external"
+                            }
+                        ],
+                        "scope": 12,
+                        "src": "146:341:0",
+                        "usedErrors": [],
+                        "usedEvents": []
+                    }
+                ],
+                "src": "32:456:0"
+            },
+            "id": 0
+        }
+    }
+}
