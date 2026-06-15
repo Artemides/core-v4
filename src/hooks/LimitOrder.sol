@@ -93,7 +93,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         return this.afterInitialize.selector;
     }
 
-    function afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
+    function afterSwap(address, PoolKey calldata key, SwapParams calldata swapParams, BalanceDelta, bytes calldata)
         external
         onlyPoolManager
         returns (bytes4, int128)
@@ -101,28 +101,29 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         int24 lastTick = ticks[key.toId()];
         int24 currentTick = _getTick(key.toId());
         (int24 fromTick, int24 toTick) = _getBucketTickRanges(lastTick, currentTick, key.tickSpacing);
+        if (fromTick > toTick) return (this.afterSwap.selector, 0);
 
-        bool zeroForOne = currentTick < lastTick;
+        bool zeroForOne = !swapParams.zeroForOne;
 
         for (int24 tickLower = fromTick; tickLower < toTick; tickLower += key.tickSpacing) {
             bytes32 bucketId = getBucketId(key.toId(), tickLower, zeroForOne);
             uint256 slot = slots[bucketId];
-
             Bucket storage bucket = buckets[bucketId][slot];
+
+            if (bucket.liquidity == 0) continue;
+
+            slots[bucketId]++;
+
             ModifyLiquidityParams memory params = ModifyLiquidityParams({
                 tickLower: fromTick, tickUpper: toTick, liquidityDelta: int128(bucket.liquidity), salt: ""
             });
-
             bytes memory data = poolManager.unlock(abi.encode(address(this), key, params));
-            (BalanceDelta delta) = abi.decode(data, (BalanceDelta));
 
-            uint256 amount0 = delta.amount0().toUint256();
-            uint256 amount1 = delta.amount1().toUint256();
+            (uint256 amount0, uint256 amount1) = abi.decode(data, (uint256, uint256));
 
+            bucket.filled = true;
             bucket.amount0 += amount0;
             bucket.amount1 += amount1;
-
-            slots[bucketId]++;
 
             emit Fill(PoolId.unwrap(key.toId()), slot, tickLower, zeroForOne, amount0, amount1);
         }
