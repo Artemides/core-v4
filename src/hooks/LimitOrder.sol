@@ -217,29 +217,21 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         PoolId id = key.toId();
         bytes32 bucketId = getBucketId(id, tickLower, zeroForOne);
 
-        (bool fulfilled, uint256 amount0, uint256 amount1, uint128 liquidity) = getBucket(bucketId, slot);
-        if (fulfilled) revert BucketFulfilled(bucketId);
+        Bucket storage bucket = buckets[bucketId][slot];
+        if (bucket.fulfilled) revert BucketFulfilled(bucketId);
 
         uint128 liquidityShare = getOrderSize(bucketId, slot, msg.sender);
         if (liquidityShare == 0) revert InsufficientLiquidity();
 
-        uint256 amount0Owed;
-
-        if (amount0 > 0) {
-            amount0Owed = FullMath.mulDiv(amount0, liquidityShare, liquidity);
-        }
-
-        uint256 amount1Owed;
-        if (amount1 > 0) {
-            amount1Owed = FullMath.mulDiv(amount1, liquidityShare, liquidity);
-        }
+        uint256 amount0Owed = FullMath.mulDiv(bucket.amount0, liquidityShare, bucket.liquidity);
+        uint256 amount1Owed = FullMath.mulDiv(bucket.amount1, liquidityShare, bucket.liquidity);
 
         delete buckets[bucketId][slot].sizes[msg.sender];
 
         if (amount0Owed > 0) key.currency0.transfer(msg.sender, amount0Owed);
         if (amount1Owed > 0) key.currency0.transfer(msg.sender, amount1Owed);
 
-        emit Take(PoolId.unwrap(id), slot, msg.sender, tickLower, zeroForOne, amount0, amount1);
+        emit Take(PoolId.unwrap(id), slot, msg.sender, tickLower, zeroForOne, amount0Owed, amount1Owed);
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
