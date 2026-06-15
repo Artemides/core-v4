@@ -182,7 +182,10 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
         bucket.sizes[msg.sender] = 0;
 
         ModifyLiquidityParams memory params = ModifyLiquidityParams({
-            tickLower: tickLower, tickUpper: tickLower + key.tickSpacing, liquidityDelta: int128(liquidity), salt: ""
+            tickLower: tickLower,
+            tickUpper: tickLower + key.tickSpacing,
+            liquidityDelta: -int128(liquidity),
+            salt: bytes32(0)
         });
 
         bytes memory data = abi.encode(msg.sender, key, params);
