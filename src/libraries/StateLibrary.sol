@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.28;
 
 // Copied from
 // https://github.com/Uniswap/v4-core/blob/main/src/libraries/StateLibrary.sol
