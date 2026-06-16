@@ -292,7 +292,7 @@ abstract contract LimitOrderHook is TStore, IUnlockCallback {
     }
 
     function _getTick(PoolId poolId) private view returns (int24 tick) {
-        (, tick,,) = StateLibrary.getSlot0(address(poolManager), poolId);
+        (, tick,,) = StateLibrary.getSlot0(poolManager, poolId);
     }
 
     function _getTickLower(int24 tick, int24 tickSpacing) internal pure returns (int24) {
