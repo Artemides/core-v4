@@ -111,13 +111,23 @@ contract PositionManager is
             } else if (action == Actions.BURN_POSITION) {}
         } else {
             if (action == Actions.SETTLE_PAIR) {
-                //_settlePair
+                (Currency c0, Currency c1) = params.decodeCurrencyPair();
+                _settlePair(c0, c1);
+
+                return;
             } else if (action == Actions.TAKE_PAIR) {
-                //_takePair
+                (Currency c0, Currency c1, address recipient) = params.decodeCurrencyPairAndAddress();
+                _takePair(c0, c1, _mapRecipient(recipient));
+
+                return;
             } else if (action == Actions.SETTLE) {
-                //_settle
+                (Currency currency, uint256 amount, bool payerIsUser) = params.decodeCurrencyUint256AndBool();
+                _settle(currency, _mapPayer(payerIsUser), _mapSettleAmount(amount, currency));
             } else if (action == Actions.TAKE) {
-                // _take
+                (Currency currency, address recipient, uint256 amount) = params.decodeCurrencyAddressAndUint256();
+                _take(currency, recipient, amount);
+
+                return;
             } else if (action == Actions.CLOSE_CURRENCY) {
                 // _close
             } else if (action == Actions.CLEAR_OR_TAKE) {
@@ -132,5 +142,28 @@ contract PositionManager is
         }
 
         revert UnsupportedAction(action);
+    }
+
+    function _takePair(Currency currency0, Currency currency1, address recipient) internal {
+        _take(currency0, recipient, _getFullCredit(currency0));
+        _take(currency1, recipient, _getFullCredit(currency1));
+    }
+
+    function _settlePair(Currency currency0, Currency currency1) internal {
+        address payer = msgSender();
+        _settle(currency0, payer, _getFullDebt(currency0));
+        _settle(currency1, payer, _getFullDebt(currency1));
+    }
+
+    function _pay(Currency currency, address payer, uint256 amount) internal virtual override {
+        if (payer == address(this)) {
+            currency.transfer(address(poolManager), amount);
+        } else {
+            permit2.transferFrom(payer, address(poolManager), uint160(amount), Currency.unwrap(currency));
+        }
+    }
+
+    function msgSender() public view override returns (address) {
+        return _getLocker();
     }
 }
