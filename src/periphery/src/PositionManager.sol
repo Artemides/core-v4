@@ -132,7 +132,19 @@ contract PositionManager is
 
                 return;
             } else if (action == Actions.MINT_POSITION_FROM_DELTAS) {
-                // _mintFromDeltas
+                (
+                    PoolKey memory poolKey,
+                    int24 tickLower,
+                    int24 tickUpper,
+                    uint128 amount0Max,
+                    uint128 amount1Max,
+                    address owner,
+                    bytes memory hookData
+                ) = params.decodeMintFromDeltasParams();
+
+                _mintFromDeltas(poolKey, tickLower, tickUpper, amount0Max, amount1Max, owner, hookData);
+
+                return;
             } else if (action == Actions.BURN_POSITION) {}
         } else {
             if (action == Actions.SETTLE_PAIR) {
@@ -265,6 +277,32 @@ contract PositionManager is
             _modifyLiquidity(key, info, liquidity.toInt256(), bytes32(tokenId), hookData);
 
         (delta - feeDelta).validateMaxIn(amount0Max, amount1Max);
+    }
+
+    function _mintFromDeltas(
+        PoolKey memory key,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 amount0Max,
+        uint128 amount1Max,
+        address owner,
+        bytes memory hookData
+    ) internal {
+        uint256 liquidity;
+        {
+
+            (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
+
+            liquidity = LiquidityAmounts.getLiquidityForAmounts(
+                sqrtPriceX96,
+                TickMath.getSqrtPriceAtTick(tickLower),
+                TickMath.getSqrtPriceAtTick(tickUpper),
+                _getFullCredit(key.currency0),
+                _getFullCredit(key.currency1)
+            );
+        }
+
+        _mint(key, tickLower, tickUpper, liquidity, amount0Max, amount1Max, owner, hookData);
     }
 
     function _modifyLiquidity(
