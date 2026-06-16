@@ -99,7 +99,11 @@ contract PositionManager is
     function _handleAction(uint256 action, bytes calldata params) internal virtual override {
         if (action < Actions.SETTLE) {
             if (action == Actions.INCREASE_LIQUIDITY) {
-                //_increase
+                (uint256 tokenId, uint256 liquidity, uint128 amount0Max, uint128 amount1Max, bytes calldata hookData) =
+                    params.decodeModifyLiquidityParams();
+                _increase(tokenId, liquidity, amount0Max, amount1Max, hookData);
+
+                return;
             } else if (action == Actions.INCREASE_LIQUIDITY_FROM_DELTAS) {
                 //_increaseFromDeltas
             } else if (action == Actions.DECREASE_LIQUIDITY) {
@@ -159,6 +163,42 @@ contract PositionManager is
         revert UnsupportedAction(action);
     }
 
+    function _increase(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint128 amount0Max,
+        uint128 amount1Max,
+        bytes memory hookData
+    ) internal onlyIfApproved(msgSender(), tokenId) {
+        (PoolKey memory key, PositionInfo info) = getPoolAndPositionInfo(tokenId);
+        (BalanceDelta delta, BalanceDelta feeDelta) =
+            _modifyLiquidity(key, info, liquidity.toInt256(), bytes32(tokenId), hookData);
+
+        (delta - feeDelta).validateMaxIn(amount0Max, amount1Max);
+    }
+
+    function _modifyLiquidity(
+        PoolKey memory key,
+        PositionInfo info,
+        int256 liquidityChange,
+        bytes32 salt,
+        bytes memory hookData
+    ) internal returns (BalanceDelta delta, BalanceDelta fees) {
+        (delta, fees) = poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: info.tickLower(), tickUpper: info.tickUpper(), liquidityDelta: liquidityChange, salt: salt
+            }),
+            hookData
+        );
+
+        emit ModifyPosition(key.toId(), msgSender(), info.tickLower(), info.tickUpper(), liquidityChange, salt);
+
+        if (info.hasSubscriber()) {
+            _notifyModifyLiquidity(uint256(salt), liquidityChange, fees);
+        }
+    }
+
     function _takePair(Currency currency0, Currency currency1, address recipient) internal {
         _take(currency0, recipient, _getFullCredit(currency0));
         _take(currency1, recipient, _getFullCredit(currency1));
@@ -204,6 +244,11 @@ contract PositionManager is
         } else {
             permit2.transferFrom(payer, address(poolManager), uint160(amount), Currency.unwrap(currency));
         }
+    }
+
+    function getPoolAndPositionInfo(uint256 tokenId) public view returns (PoolKey memory key, PositionInfo info) {
+        info = positionInfo[tokenId];
+        key = poolKeys[info.poolId()];
     }
 
     function msgSender() public view override returns (address) {
