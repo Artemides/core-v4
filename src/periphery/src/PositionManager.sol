@@ -107,7 +107,11 @@ contract PositionManager is
             } else if (action == Actions.INCREASE_LIQUIDITY_FROM_DELTAS) {
                 //_increaseFromDeltas
             } else if (action == Actions.DECREASE_LIQUIDITY) {
-                // _decrease
+                (uint256 tokenId, uint256 liquidity, uint128 amount0Max, uint128 amount1Max, bytes calldata hookData) =
+                    params.decodeModifyLiquidityParams();
+                _decrease(tokenId, liquidity, amount0Max, amount1Max, hookData);
+
+                return;
             } else if (action == Actions.MINT_POSITION) {
                 // _mint
             } else if (action == Actions.MINT_POSITION_FROM_DELTAS) {
@@ -175,6 +179,21 @@ contract PositionManager is
             _modifyLiquidity(key, info, liquidity.toInt256(), bytes32(tokenId), hookData);
 
         (delta - feeDelta).validateMaxIn(amount0Max, amount1Max);
+    }
+
+    function _decrease(
+        uint256 tokenId,
+        uint256 liquidity,
+        uint128 amount0Min,
+        uint128 amount1Min,
+        bytes memory hookData
+    ) internal onlyIfApproved(msgSender(), tokenId) {
+        (PoolKey memory key, PositionInfo info) = getPoolAndPositionInfo(tokenId);
+
+        (BalanceDelta delta, BalanceDelta feeDelta) =
+            _modifyLiquidity(key, info, -(liquidity.toInt256()), bytes32(tokenId), hookData);
+
+        (delta - feeDelta).validateMinOut(amount0Min, amount1Min);
     }
 
     function _modifyLiquidity(
