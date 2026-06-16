@@ -123,13 +123,18 @@ contract PositionManager is
             } else if (action == Actions.SETTLE) {
                 (Currency currency, uint256 amount, bool payerIsUser) = params.decodeCurrencyUint256AndBool();
                 _settle(currency, _mapPayer(payerIsUser), _mapSettleAmount(amount, currency));
+
+                return;
             } else if (action == Actions.TAKE) {
                 (Currency currency, address recipient, uint256 amount) = params.decodeCurrencyAddressAndUint256();
                 _take(currency, recipient, amount);
 
                 return;
             } else if (action == Actions.CLOSE_CURRENCY) {
-                // _close
+                Currency currency = params.decodeCurrency();
+                _close(currency);
+
+                return;
             } else if (action == Actions.CLEAR_OR_TAKE) {
                 //_clearOrTake
             } else if (action == Actions.SWEEP) {
@@ -153,6 +158,18 @@ contract PositionManager is
         address payer = msgSender();
         _settle(currency0, payer, _getFullDebt(currency0));
         _settle(currency1, payer, _getFullDebt(currency1));
+    }
+
+    function _close(Currency currency) internal {
+        int256 delta = poolManager.currencyDelta(address(this), currency);
+
+        address caller = msgSender();
+
+        if (delta < 0) {
+            _settle(currency, caller, uint256(-delta));
+        } else {
+            _take(currency, caller, uint256(delta));
+        }
     }
 
     function _pay(Currency currency, address payer, uint256 amount) internal virtual override {
