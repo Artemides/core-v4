@@ -136,13 +136,23 @@ contract PositionManager is
 
                 return;
             } else if (action == Actions.CLEAR_OR_TAKE) {
-                //_clearOrTake
+                (Currency currency, uint256 amountMax) = params.decodeCurrencyAndUint256();
+                _clearOrTake(currency, amountMax);
+
+                return;
             } else if (action == Actions.SWEEP) {
-                //_sweep
+                (Currency currency, address to) = params.decodeCurrencyAndAddress();
+                _sweep(currency, _mapRecipient(to));
+
+                return;
             } else if (action == Actions.WRAP) {
-                //_wrap
+                uint256 amount = params.decodeUint256();
+                _wrap(_mapWrapUnwrapAmount(CurrencyLibrary.ADDRESS_ZERO, amount, Currency.wrap(address(WETH9))));
+
+                return;
             } else if (action == Actions.UNWRAP) {
-                //_unwrap
+                uint256 amount = params.decodeUint256();
+                _unwrap(_mapWrapUnwrapAmount(Currency.wrap(address(WETH9)), amount, CurrencyLibrary.ADDRESS_ZERO));
             }
         }
 
@@ -170,6 +180,22 @@ contract PositionManager is
         } else {
             _take(currency, caller, uint256(delta));
         }
+    }
+
+    function _clearOrTake(Currency currency, uint256 amountMax) internal {
+        uint256 credit = _getFullCredit(currency);
+        if (credit == 0) return;
+
+        if (credit <= amountMax) {
+            poolManager.clear(currency, credit);
+        } else {
+            _take(currency, msgSender(), credit);
+        }
+    }
+
+    function _sweep(Currency currency, address recipient) internal virtual {
+        uint256 balance = currency.balanceOfSelf();
+        if (balance > 0) currency.transfer(recipient, balance);
     }
 
     function _pay(Currency currency, address payer, uint256 amount) internal virtual override {
