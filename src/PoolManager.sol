@@ -190,6 +190,16 @@ abstract contract PoolManager is IPoolManager, ProtocolFees, NoDelegateCall, ERC
         return _settle(recipient);
     }
 
+    function clear(Currency currency, uint256 amount) external onlyWhenUnlocked {
+        int256 currentDelta = currency.getDelta(msg.sender);
+        int128 clearDelta = amount.toInt128();
+        if (currentDelta != clearDelta) MustClearExactPositiveDelta.selector.revertWith();
+
+        unchecked {
+            _accountDelta(currency, -(clearDelta), msg.sender);
+        }
+    }
+
     function _settle(address recipient) internal returns (uint256 paid) {
         Currency currency = CurrencyReserves.getSyncedCurrency();
         if (currency.isAddressZero()) {
