@@ -10,7 +10,7 @@ import {PoolId} from "../types/PoolId.sol";
 library StateLibrary {
     bytes32 public constant POOLS_SLOT = bytes32(uint256(6));
 
-    function getSlot0(address manager, PoolId poolId)
+    function getSlot0(IPoolManager manager, PoolId poolId)
         internal
         view
         returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)
