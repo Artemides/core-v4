@@ -27,11 +27,11 @@ abstract contract BaseActionsRouter is IMsgSender, SafeCallback {
     function _unlockCallback(bytes calldata data) internal override returns (bytes memory) {
         (bytes calldata actions, bytes[] calldata params) = data.decodeActionsRouterParams();
 
-        _executeActionWithoutUnlockCallback(actions, params);
+        _executeActionsWithoutUnlock(actions, params);
         return "";
     }
 
-    function _executeActionWithoutUnlockCallback(bytes calldata actions, bytes[] calldata params) internal {
+    function _executeActionsWithoutUnlock(bytes calldata actions, bytes[] calldata params) internal {
         uint256 numActions = actions.length;
         if (numActions != params.length) revert InputLengthMismatch();
 

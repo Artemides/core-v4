@@ -96,6 +96,25 @@ contract PositionManager is
         return IPositionDescriptor(tokenDescriptor).tokenURI(this, tokenId);
     }
 
+    /// @inheritdoc IPositionManager
+    function modifyLiquidities(bytes calldata unlockData, uint256 deadline)
+        external
+        payable
+        isNotLocked
+        checkDeadline(deadline)
+    {
+        _executeActions(unlockData);
+    }
+
+    /// @inheritdoc IPositionManager
+    function modifyLiquiditiesWithoutUnlock(bytes calldata actions, bytes[] calldata params)
+        external
+        payable
+        isNotLocked
+    {
+        _executeActionsWithoutUnlock(actions, params);
+    }
+
     function _handleAction(uint256 action, bytes calldata params) internal virtual override {
         if (action < Actions.SETTLE) {
             if (action == Actions.INCREASE_LIQUIDITY) {
@@ -413,7 +432,7 @@ contract PositionManager is
         }
     }
 
-    function getPosiionLiquidity(uint256 tokenId) external view returns (uint128 liquidity) {
+    function getPositionLiquidity(uint256 tokenId) external view returns (uint128 liquidity) {
         (PoolKey memory poolKey, PositionInfo info) = getPoolAndPositionInfo(tokenId);
         liquidity = _getLiquidity(poolKey, tokenId, info.tickLower(), info.tickUpper());
     }
@@ -427,12 +446,29 @@ contract PositionManager is
         liquidity = poolManager.getPositionLiquidity(key.toId(), positionId);
     }
 
-    function getPoolAndPositionInfo(uint256 tokenId) public view returns (PoolKey memory key, PositionInfo info) {
+    function getPoolAndPositionInfo(uint256 tokenId) public view returns (PoolKey memory poolKey, PositionInfo info) {
         info = positionInfo[tokenId];
-        key = poolKeys[info.poolId()];
+        poolKey = poolKeys[info.poolId()];
     }
 
     function msgSender() public view override returns (address) {
         return _getLocker();
+    }
+
+    /// @dev overrides solmate transferFrom in case a notification to subscribers is needed
+    /// @dev will revert if pool manager is locked
+    function transferFrom(address from, address to, uint256 id) public virtual override onlyIfPoolManagerLocked {
+        super.transferFrom(from, to, id);
+        if (positionInfo[id].hasSubscriber()) _unsubscribe(id);
+    }
+
+    /// @notice an internal helper used by Notifier
+    function _setSubscribed(uint256 tokenId) internal override {
+        positionInfo[tokenId] = positionInfo[tokenId].setSubscribe();
+    }
+
+    /// @notice an internal helper used by Notifier
+    function _setUnsubscribed(uint256 tokenId) internal override {
+        positionInfo[tokenId] = positionInfo[tokenId].setUnsubscribe();
     }
 }
