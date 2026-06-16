@@ -145,7 +145,12 @@ contract PositionManager is
                 _mintFromDeltas(poolKey, tickLower, tickUpper, amount0Max, amount1Max, owner, hookData);
 
                 return;
-            } else if (action == Actions.BURN_POSITION) {}
+            } else if (action == Actions.BURN_POSITION) {
+                (uint256 tokenId, uint128 amount0Min, uint128 amount1Min, bytes calldata hookData) =
+                    params.decodeBurnParams();
+                _burn(tokenId, amount0Min, amount1Min, hookData);
+                return;
+            }
         } else {
             if (action == Actions.SETTLE_PAIR) {
                 (Currency c0, Currency c1) = params.decodeCurrencyPair();
@@ -223,6 +228,40 @@ contract PositionManager is
         (BalanceDelta delta,) = _modifyLiquidity(key, info, liquidity.toInt256(), bytes32(tokenId), hookData);
 
         delta.validateMaxIn(amount0Max, amount1Max);
+    }
+
+    function _burn(uint256 tokenId, uint128 amount0Min, uint128 amount1Min, bytes memory hookData) internal {
+        (PoolKey memory poolKey, PositionInfo info) = getPoolAndPositionInfo(tokenId);
+
+        address owner = ownerOf(tokenId);
+
+        positionInfo[tokenId] = PositionInfoLibrary.EMPTY_POSITION_INFO;
+        _burn(tokenId);
+
+        uint256 liquidity = uint256(_getLiquidity(poolKey, tokenId, info.tickLower(), info.tickUpper()));
+
+        BalanceDelta feeDelta;
+        if (liquidity > 0) {
+            ModifyLiquidityParams memory params = ModifyLiquidityParams({
+                tickLower: info.tickLower(),
+                tickUpper: info.tickUpper(),
+                liquidityDelta: -(liquidity.toInt256()),
+                salt: bytes32(tokenId)
+            });
+
+            BalanceDelta delta;
+            (delta, feeDelta) = poolManager.modifyLiquidity(poolKey, params, hookData);
+
+            emit ModifyPosition(
+                poolKey.toId(), msgSender(), info.tickLower(), info.tickUpper(), params.liquidityDelta, bytes32(tokenId)
+            );
+
+            (delta - feeDelta).validateMinOut(amount0Min, amount1Min);
+        }
+
+        if (info.hasSubscriber()) {
+            _removeSubscriberAndNotifyBurn(tokenId, owner, info, liquidity, feeDelta);
+        }
     }
 
     function _increase(
@@ -372,6 +411,20 @@ contract PositionManager is
         } else {
             permit2.transferFrom(payer, address(poolManager), uint160(amount), Currency.unwrap(currency));
         }
+    }
+
+    function getPosiionLiquidity(uint256 tokenId) external view returns (uint128 liquidity) {
+        (PoolKey memory poolKey, PositionInfo info) = getPoolAndPositionInfo(tokenId);
+        liquidity = _getLiquidity(poolKey, tokenId, info.tickLower(), info.tickUpper());
+    }
+
+    function _getLiquidity(PoolKey memory key, uint256 tokenId, int24 tickLower, int24 tickUpper)
+        internal
+        view
+        returns (uint128 liquidity)
+    {
+        bytes32 positionId = Position.calculatePositionKey(address(this), tickLower, tickUpper, bytes32(tokenId));
+        liquidity = poolManager.getPositionLiquidity(key.toId(), positionId);
     }
 
     function getPoolAndPositionInfo(uint256 tokenId) public view returns (PoolKey memory key, PositionInfo info) {
