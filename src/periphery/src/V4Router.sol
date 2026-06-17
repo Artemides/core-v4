@@ -74,6 +74,62 @@ contract V4Router is IV4Router, ImmutableState, DeltaResolver {
         if (amountOut < params.amountOutMinimum) revert V4TooLittleReceived(params.amountOutMinimum, amountOut);
     }
 
+    function _swapExactOutputSingle(IV4Router.ExactOutputSingleParams calldata params) private {
+        uint128 amountOut = params.amountOut;
+
+        if (amountOut == ActionConstants.OPEN_DELTA) {
+            amountOut =
+                _getFullDebt(params.zeroForOne ? params.poolKey.currency1 : params.poolKey.currency0).toUint128();
+        }
+
+        int128 rawAmountIn = _swap(params.poolKey, params.zeroForOne, amountOut.toInt256(), params.hookData);
+
+        uint128 amountIn = uint256(-int256(rawAmountIn)).toUint128();
+
+        if (amountIn > params.amountInMaximum) revert V4TooMuchRequested(params.amountInMaximum, amountIn);
+
+        if (params.minHopPriceX36 != 0) {
+            uint256 priceX36 = uint256(amountOut) * PRECISION / amountIn;
+            if (priceX36 < params.minHopPriceX36) {
+                revert V4TooMuchRequestedPerHopSingle(params.minHopPriceX36, priceX36);
+            }
+        }
+    }
+
+    function _swapExactOutput(IV4Router.ExactOutputParams calldata params) private {
+        uint256 pathLength = params.path.length;
+
+        Currency currencyOut = params.currencyOut;
+
+        uint128 amountOut = params.amountOut;
+        if (amountOut == ActionConstants.OPEN_DELTA) {
+            amountOut = _getFullDebt(currencyOut).toUint128();
+        }
+
+        uint256 hopsLength = params.minHopPriceX36.length;
+        if (hopsLength != 0 && hopsLength != pathLength) revert InvalidHopPriceLength();
+
+        PathKey calldata pathKey;
+        uint128 amountIn;
+        for (uint256 i = pathLength; i > 0; i--) {
+            pathKey = params.path[i - 1];
+            (PoolKey memory poolKey, bool zeroForOne) = pathKey.getPoolAndSwapDirection(currencyOut);
+
+            int128 rawAmountIn = _swap(poolKey, zeroForOne, amountOut.toInt256(), pathKey.hookData);
+            amountIn = uint128(-rawAmountIn);
+
+            if (hopsLength != 0) {
+                uint256 price = amountOut * PRECISION / amountIn;
+                uint256 minPrice = params.minHopPriceX36[i - 1];
+                if (minPrice < price) V4TooMuchRequestedPerHop(i - 1, minPrice, price);
+            }
+
+            amountOut = amountIn;
+            currencyOut = pathKey.intermediateCurrency;
+        }
+        if (amountIn > params.amountInMaximum) revert V4TooMuchRequested(params.amountInMaximum, amountIn);
+    }
+
     function _swap(PoolKey memory poolKey, bool zeroForOne, int256 amountSpecified, bytes memory hookData)
         internal
         returns (int128 amountOut)
