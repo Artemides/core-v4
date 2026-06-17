@@ -1,9 +1,9 @@
 //SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.24;
 
-import "./../../types/Currency.sol";
-import "./../../interfaces/IHooks.sol";
-import "./../../types/PoolKey.sol";
+import {Currency} from "./../../types/Currency.sol";
+import {IHooks} from "./../../interfaces/IHooks.sol";
+import {PoolKey} from "./../../types/PoolKey.sol";
 
 struct PathKey {
     Currency intermediateCurrency;

@@ -13,6 +13,8 @@ import {SafeCast} from "./../../libraries/SafeCast.sol";
 import {IV4Router} from "./../interfaces/IV4Router.sol";
 import {DeltaResolver} from "./../base/DeltaResolver.sol";
 import {ActionConstants} from "./../libraries/ActionConstants.sol";
+import {PathKey} from "./../libraries/PathKey.sol";
+import {Currency} from "./../../types/Currency.sol";
 
 contract V4Router is IV4Router, ImmutableState, DeltaResolver {
     using SafeCast for *;
@@ -38,6 +40,38 @@ contract V4Router is IV4Router, ImmutableState, DeltaResolver {
                 revert V4TooLittleReceivedPerHopSingle(params.minHopPriceX36, priceX36);
             }
         }
+    }
+
+    function _swapExactInput(IV4Router.ExactInputParams calldata params) private {
+        uint256 swaps = params.path.length;
+        Currency currencyIn = params.currencyIn;
+
+        uint128 amountIn = params.amountIn;
+        if (amountIn == ActionConstants.OPEN_DELTA) amountIn = _getFullCredit(currencyIn).toUint128();
+
+        uint256 perHopPriceLength = params.minHopPriceX36.length;
+        if (perHopPriceLength != 0 && perHopPriceLength != swaps) revert InvalidHopPriceLength();
+
+        PathKey calldata pathKey;
+        uint128 amountOut;
+
+        for (uint256 i = 0; i < swaps; i++) {
+            pathKey = params.path[i];
+            (PoolKey memory poolKey, bool zeroForOne) = pathKey.getPoolAndSwapDirection(currencyIn);
+
+            amountOut = _swap(poolKey, zeroForOne, -int256(uint256(amountIn)), pathKey.hookData).toUint128();
+
+            if (perHopPriceLength != 0) {
+                uint256 priceX36 = amountOut * PRECISION / amountIn;
+                uint256 minPrice = params.minHopPriceX36[i];
+                if (priceX36 < minPrice) revert V4TooLittleReceivedPerHop(i, minPrice, priceX36);
+            }
+
+            amountIn = amountOut;
+            currencyIn = pathKey.intermediateCurrency;
+        }
+
+        if (amountOut < params.amountOutMinimum) revert V4TooLittleReceived(params.amountOutMinimum, amountOut);
     }
 
     function _swap(PoolKey memory poolKey, bool zeroForOne, int256 amountSpecified, bytes memory hookData)
