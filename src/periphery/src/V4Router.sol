@@ -15,13 +15,60 @@ import {DeltaResolver} from "./../base/DeltaResolver.sol";
 import {ActionConstants} from "./../libraries/ActionConstants.sol";
 import {PathKey} from "./../libraries/PathKey.sol";
 import {Currency} from "./../../types/Currency.sol";
+import {BaseActionsRouter} from "./../base/BaseActionsRouter.sol";
+import {Actions} from "./../libraries/Actions.sol";
+import {CalldataDecoder} from "./../libraries/CalldataDecoder.sol";
+import {BipsLibrary} from "./../libraries/BipsLibrary.sol";
 
-contract V4Router is IV4Router, ImmutableState, DeltaResolver {
+abstract contract V4Router is IV4Router, BaseActionsRouter, DeltaResolver {
     using SafeCast for *;
-
+    using CalldataDecoder for bytes;
+    using BipsLibrary for uint256;
     uint256 private constant PRECISION = 1e36;
 
-    constructor(IPoolManager _pm) ImmutableState(_pm) {}
+    constructor(IPoolManager _pm) BaseActionsRouter(_pm) {}
+
+    function _handleAction(uint256 action, bytes calldata data) internal override {
+        if (action < Actions.SETTLE) {
+            if (action == Actions.SWAP_EXACT_IN) {
+                return _swapExactInput(data.decodeSwapExactInParams());
+            } else if (action == Actions.SWAP_EXACT_IN_SINGLE) {
+                return _swapExactInputSingle(data.decodeSwapExactInSingleParams());
+            } else if (action == Actions.SWAP_EXACT_OUT) {
+                return _swapExactOutput(data.decodeSwapExactOutParams());
+            } else if (action == Actions.SWAP_EXACT_OUT_SINGLE) {
+                return _swapExactOutputSingle(data.decodeSwapExactOutSingleParams());
+            }
+        } else {
+            if (action == Actions.SETTLE_ALL) {
+                (Currency currency, uint256 maxAmount) = data.decodeCurrencyAndUint256();
+                uint256 amount = _getFullDebt(currency);
+                if (amount > maxAmount) revert V4TooMuchRequested(maxAmount, amount);
+                _settle(currency, msgSender(), amount);
+                return;
+            } else if (action == Actions.TAKE_ALL) {
+                (Currency currency, uint256 minAmount) = data.decodeCurrencyAndUint256();
+                uint256 amount = _getFullCredit(currency);
+                if (amount < minAmount) revert V4TooLittleReceived(minAmount, amount);
+                _take(currency, msgSender(), amount);
+                return;
+            } else if (action == Actions.SETTLE) {
+                (Currency currency, uint256 amount, bool payerIsUser) = data.decodeCurrencyUint256AndBool();
+                _settle(currency, _mapPayer(payerIsUser), _mapSettleAmount(amount, currency));
+                return;
+            } else if (action == Actions.TAKE) {
+                (Currency currency, address recipient, uint256 amount) = data.decodeCurrencyAddressAndUint256();
+                _take(currency, _mapRecipient(recipient), _mapTakeAmount(amount, currency));
+                return;
+            } else if (action == Actions.TAKE_PORTION) {
+                (Currency currency, address recipient, uint256 bips) = data.decodeCurrencyAddressAndUint256();
+                _take(currency, _mapRecipient(recipient), _getFullCredit(currency).calculatePortion(bips));
+                return;
+            }
+        }
+
+        revert UnsupportedAction(action);
+    }
 
     function _swapExactInputSingle(IV4Router.ExactInputSingleParams memory params) private {
         uint128 amountIn = params.amountIn;
@@ -121,7 +168,7 @@ contract V4Router is IV4Router, ImmutableState, DeltaResolver {
             if (hopsLength != 0) {
                 uint256 price = amountOut * PRECISION / amountIn;
                 uint256 minPrice = params.minHopPriceX36[i - 1];
-                if (minPrice < price) V4TooMuchRequestedPerHop(i - 1, minPrice, price);
+                if (minPrice < price) revert V4TooMuchRequestedPerHop(i - 1, minPrice, price);
             }
 
             amountOut = amountIn;
